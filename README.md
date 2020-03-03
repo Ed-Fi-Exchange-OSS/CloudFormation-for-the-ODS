@@ -1,6 +1,6 @@
 # Ed-Fi-X-ODS-Deploy-AWS
 
-Cloud Formation template for installing the ODS/API in AWS.
+Cloud Formation template and supporting artifacts for installing the ODS/API in AWS.
 
 License
 ==========
