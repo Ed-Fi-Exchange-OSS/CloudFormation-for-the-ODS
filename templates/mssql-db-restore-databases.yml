@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template provides the custome resources that will populate the EdFi ODS database.  **
+  WARNING **  You will be billed for the AWS resources that are created from this
+  template.  There is no cost to use this template, but are responsible for the costs
+  incurred by the resources created in this template.
+Parameters:
+  RDSUsername:
+    Type: String
+    Default: sqlsa
+  RDSPassword:
+    Type: String
+    NoEcho: 'true'
+  RDSHost:
+    Type: String
+  RestoreAdminDB:
+    Type: String
+    Default: 'yes'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+  RestoreSecurityDB:
+    Type: String
+    Default: 'yes'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+  RestoreMinimalDB:
+    Type: String
+    Default: 'yes'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+  RestorePopulatedDB:
+    Type: String
+    Default: 'no'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+  RestoreEmptyDB:
+    Type: String
+    Default: 'no'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+  S3SourceBucket:
+    Type: String
+    Default: edfi-aws-quick-deploy
+  S3SourceKeyName:
+    Type: String
+    Default: sqlserver
+  AdminDBBakS3Name:
+    Type: String
+    Default: EdFi_Admin.bak
+  SecurityDBBakS3Name:
+    Type: String
+    Default: EdFi_Security.bak
+  MinimalDBBakS3Name:
+    Type: String
+    Default: EdFi_Ods_Minimal_Template.bak
+  PopulatedDBBakS3Name:
+    Type: String
+    Default: EdFi_Ods_Populated_Template.bak
+  EmptyDBBakS3Name:
+    Type: String
+    Default: EdFi_ODS.bak
+  LambdaFunctionName:
+    Type: String
+    Default: edfi-ods-lambda-mssql-db-restore
+Conditions:
+  RestoreTheAdminDB: !Equals
+    - !Ref 'RestoreAdminDB'
+    - 'yes'
+  RestoreTheSecurityDB: !Equals
+    - !Ref 'RestoreSecurityDB'
+    - 'yes'
+  RestoreTheMinimalDB: !Equals
+    - !Ref 'RestoreMinimalDB'
+    - 'yes'
+  RestoreThePopulatedDB: !Equals
+    - !Ref 'RestorePopulatedDB'
+    - 'yes'
+  RestoreTheEmptyDB: !Equals
+    - !Ref 'RestoreEmptyDB'
+    - 'yes'
+Resources:
+  MSSQLDBRestoreEmptyResource:
+    Condition: RestoreTheEmptyDB
+    Type: Custom::MSSQLDBRestore
+    Properties:
+      ServiceToken: !Join
+        - ''
+        - - 'arn:aws:lambda:'
+          - !Ref 'AWS::Region'
+          - ':'
+          - !Ref 'AWS::AccountId'
+          - ':function:'
+          - !Ref 'LambdaFunctionName'
+      source: !Join
+        - ''
+        - - 'arn:aws:s3:::'
+          - !Ref 'S3SourceBucket'
+          - /
+          - !Ref 'S3SourceKeyName'
+          - /
+          - !Ref 'EmptyDBBakS3Name'
+      server: !Ref 'RDSHost'
+      database: EdFi_Ods
+      username: !Ref 'RDSUsername'
+      pwdname: !Ref 'RDSPassword'
+  MSSQLDBRestoreAdminResource:
+    Condition: RestoreTheAdminDB
+    Type: Custom::MSSQLDBRestore
+    Properties:
+      ServiceToken: !Join
+        - ''
+        - - 'arn:aws:lambda:'
+          - !Ref 'AWS::Region'
+          - ':'
+          - !Ref 'AWS::AccountId'
+          - ':function:'
+          - !Ref 'LambdaFunctionName'
+      source: !Join
+        - ''
+        - - 'arn:aws:s3:::'
+          - !Ref 'S3SourceBucket'
+          - /
+          - !Ref 'S3SourceKeyName'
+          - /
+          - !Ref 'AdminDBBakS3Name'
+      server: !Ref 'RDSHost'
+      database: EdFi_Admin
+      username: !Ref 'RDSUsername'
+      pwdname: !Ref 'RDSPassword'
+  MSSQLDBRestoreMinimalResource:
+    Condition: RestoreTheMinimalDB
+    DependsOn: MSSQLDBRestoreSecurityResource
+    Type: Custom::MSSQLDBRestore
+    Properties:
+      ServiceToken: !Join
+        - ''
+        - - 'arn:aws:lambda:'
+          - !Ref 'AWS::Region'
+          - ':'
+          - !Ref 'AWS::AccountId'
+          - ':function:'
+          - !Ref 'LambdaFunctionName'
+      source: !Join
+        - ''
+        - - 'arn:aws:s3:::'
+          - !Ref 'S3SourceBucket'
+          - /
+          - !Ref 'S3SourceKeyName'
+          - /
+          - !Ref 'MinimalDBBakS3Name'
+      server: !Ref 'RDSHost'
+      database: EdFi_Ods
+      username: !Ref 'RDSUsername'
+      pwdname: !Ref 'RDSPassword'
+  MSSQLDBRestorePopulatedResource:
+    Condition: RestoreThePopulatedDB
+    DependsOn: MSSQLDBRestoreSecurityResource
+    Type: Custom::MSSQLDBRestore
+    Properties:
+      ServiceToken: !Join
+        - ''
+        - - 'arn:aws:lambda:'
+          - !Ref 'AWS::Region'
+          - ':'
+          - !Ref 'AWS::AccountId'
+          - ':function:'
+          - !Ref 'LambdaFunctionName'
+      source: !Join
+        - ''
+        - - 'arn:aws:s3:::'
+          - !Ref 'S3SourceBucket'
+          - /
+          - !Ref 'S3SourceKeyName'
+          - /
+          - !Ref 'PopulatedDBBakS3Name'
+      server: !Ref 'RDSHost'
+      database: EdFi_Ods
+      username: !Ref 'RDSUsername'
+      pwdname: !Ref 'RDSPassword'
+  MSSQLDBRestoreSecurityResource:
+    Condition: RestoreTheSecurityDB
+    DependsOn: MSSQLDBRestoreAdminResource
+    Type: Custom::MSSQLDBRestore
+    Properties:
+      ServiceToken: !Join
+        - ''
+        - - 'arn:aws:lambda:'
+          - !Ref 'AWS::Region'
+          - ':'
+          - !Ref 'AWS::AccountId'
+          - ':function:'
+          - !Ref 'LambdaFunctionName'
+      source: !Join
+        - ''
+        - - 'arn:aws:s3:::'
+          - !Ref 'S3SourceBucket'
+          - /
+          - !Ref 'S3SourceKeyName'
+          - /
+          - !Ref 'SecurityDBBakS3Name'
+      server: !Ref 'RDSHost'
+      database: EdFi_Security
+      username: !Ref 'RDSUsername'
+      pwdname: !Ref 'RDSPassword'
