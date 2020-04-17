@@ -44,16 +44,6 @@ Parameters:
     Default: ''
     Description: This provides a location where the SSH Private Key pair file can
       be saved in S3.
-  S3BucketSourceCode:
-    Type: String
-    Default: edfi-aws-quick-deploy
-    Description: This provides the name of the S3 bucket where the Lambda source code
-      resides
-  S3KeySourceCode:
-    Type: String
-    Default: lambdas
-    Description: This provides the folder name inside the S3 bucket where the Lambda
-      source code resides
 Resources:
   ManagedKeyPairResource:
     Type: Custom::ManagedKeyPair

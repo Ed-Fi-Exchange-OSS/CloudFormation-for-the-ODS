@@ -64,6 +64,13 @@ Parameters:
     Default: lambdas
     Description: This provides the folder name inside the S3 bucket where the Lambda
       source code resides.
+  CreateMultiAZFunction:
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Type: String
+    Description: Create the Lambda function to convert the RDS to a MultiAZ configuration
   NonProdEnv:
     Default: 'true'
     AllowedValues:
@@ -78,6 +85,9 @@ Conditions:
   ProdEnvironment: !Equals
     - !Ref 'NonProdEnv'
     - 'false'
+  CreateLambdaMultiAZConversion: !Equals
+    - !Ref 'CreateMultiAZFunction'
+    - 'true'
 Rules:
   SubnetsInVPC:
     Assertions:
@@ -91,12 +101,6 @@ Resources:
   KeyGeneratorRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Join
-        - ''
-        - - !Ref 'SSHKeyGenIamName'
-          - '-'
-          - !Ref 'EnvLabel'
-          - -role
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       AssumeRolePolicyDocument:
@@ -119,6 +123,8 @@ Resources:
         - - !Ref 'SSHKeyGenIamName'
           - '-'
           - !Ref 'EnvLabel'
+          - '-'
+          - !Ref 'AWS::Region'
           - -policy
       PolicyDocument:
         Version: '2012-10-17'
@@ -162,11 +168,6 @@ Resources:
   MSSQLDBRestoreRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Join
-        - ''
-        - - !Ref 'MSSQLRestoreIamName'
-          - '-'
-          - !Ref 'EnvLabel'
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
@@ -190,6 +191,9 @@ Resources:
         - - !Ref 'MSSQLRestoreIamName'
           - '-'
           - !Ref 'EnvLabel'
+          - '-'
+          - !Ref 'AWS::Region'
+          - -policy
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -266,12 +270,6 @@ Resources:
   SSMParamStoreRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Join
-        - ''
-        - - !Ref 'PassStoreIamName'
-          - '-'
-          - !Ref 'EnvLabel'
-          - -role
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       AssumeRolePolicyDocument:
@@ -294,6 +292,8 @@ Resources:
         - - !Ref 'PassStoreIamName'
           - '-'
           - !Ref 'EnvLabel'
+          - '-'
+          - !Ref 'AWS::Region'
           - -policy
       PolicyDocument:
         Version: '2012-10-17'
@@ -431,12 +431,6 @@ Resources:
     Condition: NonProdEnvironment
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Join
-        - ''
-        - - !Ref 'Ec2ToElbIamName'
-          - '-'
-          - !Ref 'EnvLabel'
-          - -role
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       AssumeRolePolicyDocument:
@@ -460,6 +454,8 @@ Resources:
         - - !Ref 'Ec2ToElbIamName'
           - '-'
           - !Ref 'EnvLabel'
+          - '-'
+          - !Ref 'AWS::Region'
           - -policy
       PolicyDocument:
         Version: '2012-10-17'
@@ -572,15 +568,9 @@ Resources:
     Properties:
       FunctionName: !Ref 'Ec2ToElbLambdaFunction'
   RDSMultiAZConversionRole:
-    Condition: ProdEnvironment
+    Condition: CreateLambdaMultiAZConversion
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Join
-        - ''
-        - - !Ref 'RdsToMultiAZIamName'
-          - '-'
-          - !Ref 'EnvLabel'
-          - -role
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       AssumeRolePolicyDocument:
@@ -594,7 +584,7 @@ Resources:
               - sts:AssumeRole
       Path: /
   RDSMultiAZConversionPolicy:
-    Condition: ProdEnvironment
+    Condition: CreateLambdaMultiAZConversion
     Type: AWS::IAM::Policy
     DependsOn:
       - RDSMultiAZConversionRole
@@ -604,6 +594,8 @@ Resources:
         - - !Ref 'RdsToMultiAZIamName'
           - '-'
           - !Ref 'EnvLabel'
+          - '-'
+          - !Ref 'AWS::Region'
           - -policy
       PolicyDocument:
         Version: '2012-10-17'
@@ -617,7 +609,7 @@ Resources:
       Roles:
         - !Ref 'RDSMultiAZConversionRole'
   RDSMultiAZConversionLambdaFunction:
-    Condition: ProdEnvironment
+    Condition: CreateLambdaMultiAZConversion
     Type: AWS::Lambda::Function
     DependsOn:
       - RDSMultiAZConversionRole
@@ -735,7 +727,7 @@ Resources:
             - ' '
             - signal.signal(signal.SIGALRM, timeout_handler)
   RDSMultiAZConversionLambdaVersion:
-    Condition: ProdEnvironment
+    Condition: CreateLambdaMultiAZConversion
     Type: AWS::Lambda::Version
     Properties:
       FunctionName: !Ref 'RDSMultiAZConversionLambdaFunction'
@@ -763,8 +755,8 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-AttachEc2ToElbLambdaFunctionName'
   RDSToMultiAZLambdaFunctionName:
-    Condition: ProdEnvironment
-    Description: Lambda Function Name to convert the RDS to MultiAZ for Prod environments
+    Condition: CreateLambdaMultiAZConversion
+    Description: Lambda Function Name to convert the RDS to MultiAZ
     Value: !Ref 'RDSMultiAZConversionLambdaFunction'
     Export:
       Name: !Sub '${AWS::StackName}-RDSMultiAZConversionLambdaFunction'

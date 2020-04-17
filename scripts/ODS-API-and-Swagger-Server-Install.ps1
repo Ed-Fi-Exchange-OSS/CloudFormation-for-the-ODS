@@ -14,8 +14,6 @@ $APIConfigTemplate = "Web.config.API-template"
 $SwaggerConfigTemplate = "Web.config.Swagger-template"
 $IISRootFolderName = "C:\inetpub\wwwroot"
 $WebConfigFileName = 'Web.config'
-$IISAppConfigDirectory = "C:\Windows\System32\inetsrv\config"
-$IISAppConfigFile = "applicationHost.config"
 $LogDirectory = "C:\EdFiInstallLogs"
 
 if ( -not (Test-Path -Path $LogDirectory) ) {
@@ -23,7 +21,6 @@ if ( -not (Test-Path -Path $LogDirectory) ) {
 }
 
 
-$IISAppConfigFilePath = [Io.path]::Combine($IISAppConfigDirectory,$IISAppConfigFile)
 $ODSPackagePath = [Io.path]::Combine($DownloadsDirectory,$AppNameODSAPIPackage)
 $SwaggerPackagePath = [Io.path]::Combine($DownloadsDirectory,$AppNameSwaggerUIPackage)
 $WebDeployPackagePath = [Io.path]::Combine($DownloadsDirectory,$WebDeployInstallPackage)
@@ -197,35 +194,6 @@ If ($InstallSwagger -eq 'yes') {
 	 LogMsg("$error")
 	 $error.Clear()
      }  
-}
-
-### We need to edit the IIS applicationHost.config file to allow the HTTPS Server variable to be used by the EdFi.Ods.WebApi site
-### Place the Server Variable XML right before the end of the configuration XML.   This is where it is added if done manually through the GUI.
-LogMsg("Updating IIS Application Host Config to work with SSL Offloading...waiting 10 seconds to ensure the file is ready for editing")
-Start-Sleep 10
-if ( Test-Path -Path $IISAppConfigFilePath )
-{
-   try
-     {
-         $AppHostConfigTextContent = Get-Content -Path "$IISAppConfigFilePath" -Raw
-         Start-Sleep 10
-         $AppHostConfigTextContent = $AppHostConfigTextContent -Replace '</configuration>', "`t<location path=`"Default Web Site/EdFi.Ods.WebApi`">`r`n`t`t<system.webServer>`r`n`t`t`t<rewrite>`r`n`t`t`t`t<allowedServerVariables>`r`n`t`t`t`t`t<add name=`"HTTPS`" />`r`n`t`t`t`t`</allowedServerVariables>`r`n`t`t`t</rewrite>`r`n`t`t</system.webServer>`r`n`t</location>`r`n</configuration>`r`n"
-         Start-Sleep 10
-         Set-Content "$IISAppConfigFilePath" $AppHostConfigTextContent
-         LogMsg("IIS Application Host Config updated for SSL Offloading for ODS API application.")
-     }
-   catch
-     {
-         LogMsg("ERROR!  Could not edit the applicationHost.config file.  The file did not exist.")
-	 LogMsg("$error")
-	 $error.Clear()
-         EXIT
-     }
-}
-else
-{
-     LogMsg("ERROR!  The applicationHost.config file does not exist!  This most likely means that there was an issue with the installation of the ODS API package or IIS.")
-     EXIT     
 }
 
 ## Sleep for 10 seconds in case this is a non-prod environment to allow the Admin App to start its install cleanly

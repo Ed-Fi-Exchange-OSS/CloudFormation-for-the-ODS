@@ -30,10 +30,6 @@ Metadata:
           - SQLMasterUserPassword
           - VolumeSize
           - VolumeType
-      - Label:
-          default: EdFi Quick Deploy Information
-        Parameters:
-          - S3SourceBucket
     ParameterLabels:
       Environment:
         default: MultiAZ or SingleAZ
@@ -73,8 +69,6 @@ Metadata:
         default: VPC ID
       RDSSecurityGroupID:
         default: RDS Security Group ID
-      S3SourceBucket:
-        default: Ed-Fi Quick Deploy bucket name
 Parameters:
   Environment:
     AllowedValues:
@@ -86,13 +80,6 @@ Parameters:
   EnvLabel:
     Default: test
     Description: Provide a label for your environment to identify resources easier.
-    Type: String
-  S3SourceBucket:
-    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
-    ConstraintDescription: S3 bucket names can include numbers, lowercase letters,
-      uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
-    Default: edfi-aws-quick-deploy
-    Description: S3 bucket name for the Ed-Fi Quick Deploy bak files location.
     Type: String
   DBAutoMinorVersionUpgrade:
     AllowedValues:
@@ -247,7 +234,7 @@ Resources:
       LicenseModel: license-included
       MasterUserPassword: !Ref 'SQLMasterUserPassword'
       MasterUsername: !Ref 'SQLMasterUserName'
-      MultiAZ: 'False'
+      MultiAZ: 'false'
       VPCSecurityGroups:
         - !Ref 'RDSSecurityGroupID'
       PubliclyAccessible: !Ref 'PubliclyAccessible'
