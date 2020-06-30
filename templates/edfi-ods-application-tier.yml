@@ -23,17 +23,19 @@ Metadata:
           - WebServerMinSize
           - WebServerMaxSize
           - WebServerDesiredCapacity
+          - EnableAutoScaling
           - KeyPair
       - Label:
           default: EdFi ODS API Configuration
         Parameters:
           - EnvLabel
+          - Version
           - DomainNameURL
+          - DBEngine
           - DBEndpointAddress
           - DBUsername
           - DBPassword
           - UseSwagger
-          - SSLCertificateId
       - Label:
           default: EdFi Quick Deploy Configuration
         Parameters:
@@ -61,10 +63,14 @@ Metadata:
         default: Maximum number of application servers to have running
       WebServerDesiredCapacity:
         default: The desired number of applcation servers to be running
+      EnableAutoScaling:
+        default: Enable AutoScaling for ODS API Server
       KeyPair:
         default: EC2 KeyPair to assign to the instances
       DomainNameURL:
         default: Domain Name of the ODS API environment
+      DBEngine:
+        default: Database Engine
       DBEndpointAddress:
         default: The RDS endpoint for the environment
       DBUsername:
@@ -75,11 +81,17 @@ Metadata:
         default: Should the SwaggerUI be installed
       S3BucketName:
         default: The S3 bucket that provides the ODS API resources
+      Version:
+        default: The ODS API Software Version
 Parameters:
   EnvLabel:
     Default: ''
     Type: String
     Description: Provide a label for your environment to identify resources easier.
+  Version:
+    Default: ''
+    Type: String
+    Description: The ODS API Software version to install such as 3.4.0
   UseSwagger:
     AllowedValues:
       - 'yes'
@@ -97,7 +109,7 @@ Parameters:
     AllowedPattern: '[a-zA-Z0-9]*'
   AdminPassword:
     Description: Password for the ODS API Application local administrative account.
-      Must be at least 8 characters containing letters, numbers and symbols
+      Must be at least 8 characters containing letters, numbers and symbols.  
     Type: String
     MinLength: '8'
     MaxLength: '32'
@@ -130,13 +142,13 @@ Parameters:
     Description: Web Server node instance type
     Type: String
   LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-windows-latest/Windows_Server-2016-English-Full-Base
+    Type: AWS::EC2::Image::Id
+    Default: ""
   WebServerSecurityGroup:
     Description: Web Server Security Group
     Type: AWS::EC2::SecurityGroup::Id
   ALBTargetGroupARN:
-    Description: AWS ARN Value of an existin target group to associate with the auto-scaling
+    Description: AWS ARN Value of an existing target group to associate with the auto-scaling
       group
     Type: String
   KeyPair:
@@ -147,6 +159,14 @@ Parameters:
   DomainNameURL:
     Description: The fully qualified domain name to be used for this ODS API environment
     Type: String
+  DBEngine:
+    Description: The database engine software
+    Type: String
+    AllowedValues:
+      - PostgreSQL
+      - SQLServer
+    ConstraintDescription: Choose a support database engine
+    Default: SQLServer
   DBEndpointAddress:
     Description: RDS DB Endpoint
     Type: String
@@ -179,6 +199,13 @@ Parameters:
     Default: '1'
     Description: Desired number of web server instances in Auto Scaling group
     Type: Number
+  EnableAutoScaling:
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'false'
+    Description: This will potentially increase the cost of the environment, however, if you would like to have the ODS/API Servers scale up and down based on demand, you can enable this feature.
+    Type: String
   VPCID:
     Description: Select the VPC to use
     Type: AWS::EC2::VPC::Id
@@ -191,11 +218,17 @@ Rules:
             - VpcId
           - !RefAll 'AWS::EC2::VPC::Id'
         AssertDescription: All subnets provided must in the VPC selected for use
+Conditions:
+  UseAutoScaling: !Equals
+    - !Ref 'EnableAutoScaling'
+    - 'true'
 Resources:
   WebServerInstanceRole:
     Type: AWS::IAM::Role
     Properties:
       Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -260,6 +293,10 @@ Resources:
         - Key: Environment
           Value: !Ref 'EnvLabel'
           PropagateAtLaunch: 'true'
+    CreationPolicy:
+      ResourceSignal:
+        Count: !Ref 'WebServerDesiredCapacity' 
+        Timeout: PT40M
   WebServerLC:
     Type: AWS::AutoScaling::LaunchConfiguration
     Metadata:
@@ -274,6 +311,7 @@ Resources:
           defaultorder:
             - config1
             - config2
+            - config3
         config1:
           files:
             c:\cfn\cfn-hup.conf:
@@ -298,18 +336,39 @@ Resources:
                   - ' --region '
                   - !Ref 'AWS::Region'
                   - "\n"
-            C:\ODS-API-and-Swagger-Server-Install.ps1:
+            C:\install-ods-api-aws-script.ps1:
               source: !Join
                 - ''
                 - - https://
                   - !Ref 'S3BucketName'
-                  - .s3.amazonaws.com/scripts/ODS-API-and-Swagger-Server-Install.ps1
+                  - .s3.amazonaws.com/scripts/install-ods-api-aws-script.ps1
+            C:\install-cloudwatch-agent.ps1:
+              source: !Join
+                - ''
+                - - https://
+                  - !Ref 'S3BucketName'
+                  - .s3.amazonaws.com/scripts/install-cloudwatch-agent.ps1
             C:\Create-LocalUser.ps1:
               source: !Join
                 - ''
                 - - https://
                   - !Ref 'S3BucketName'
                   - .s3.amazonaws.com/scripts/Create-LocalUser.ps1
+            C:\ndp48-x86-x64-allos-enu.exe:
+              source: !Join
+                - ''
+                - - https://
+                  - !Ref 'S3BucketName'
+                  - .s3.amazonaws.com/packages/ndp48-x86-x64-allos-enu.exe
+          commands:
+            a-install-dotnet:
+              command: "C:\\ndp48-x86-x64-allos-enu.exe /q"
+              ignoreErrors: "true"
+              waitAfterCompletion: '60'
+            b-restart-server:
+              command: powershell.exe -Command Restart-Computer -Force
+              waitAfterCompletion: forever
+        config2:
           commands:
             a-create-admin:
               command: !Join
@@ -328,25 +387,41 @@ Resources:
                   - !Ref 'AdminUser'
                   - ' /ADD'
               waitAfterCompletion: '0'
-        config2:
+            c-install-cloudwatch-agent-package:
+              command: !Join
+                - ''
+                - - powershell -command C:\install-cloudwatch-agent.ps1 -EnvLabel '
+                  - !Ref 'EnvLabel'
+                  - ''' -S3Bucket '''
+                  - !Ref 'S3BucketName'
+                  - ''''
+              waitAfterCompletion: '0'
+        config3:
           commands:
             1-executeinstall:
               command: !Join
                 - ''
-                - - powershell -command C:\ODS-API-and-Swagger-Server-Install.ps1
+                - - powershell -command C:\install-ods-api-aws-script.ps1
                     -verb runas -DatabaseHost '
                   - !Ref 'DBEndpointAddress'
                   - ''' -DatabaseUser '''
                   - !Ref 'DBUsername'
                   - ''' -DatabasePassword '''
                   - !Ref 'DBPassword'
+                  - ''' -DBEngine '''
+                  - !Ref 'DBEngine'
                   - ''' -DomainName '''
                   - !Ref 'DomainNameURL'
+                  - ''' -VersionNumber '''
+                  - !Ref 'Version'
                   - ''' -InstallSwagger '''
                   - !Ref 'UseSwagger'
                   - ''' -S3Bucket '''
                   - !Ref 'S3BucketName'
                   - ''''
+            2-signal-resource:
+              command: !Sub >
+                cfn-signal.exe -e %ERRORLEVEL% --stack ${AWS::StackName} --resource WebServerAsg --region ${AWS::Region}
           services:
             windows:
               cfn-hup:
@@ -372,12 +447,65 @@ Resources:
             - ' --region '
             - !Ref 'AWS::Region'
             - "\n"
-            - 'cfn-signal.exe -e %ERRORLEVEL% '
-            - ' --stack '
-            - !Ref 'AWS::StackId'
-            - ' --resource WebServerAsg'
-            - ' --region '
-            - !Ref 'AWS::Region'
-            - "\n"
             - </script>
+  ScaleAutoScalingGroupUp:
+    Condition: UseAutoScaling
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref 'WebServerAsg'
+      PolicyType: StepScaling
+      EstimatedInstanceWarmup: '420'
+      StepAdjustments:
+        - MetricIntervalLowerBound: '0'
+          MetricIntervalUpperBound: '15'
+          ScalingAdjustment: '1'
+        - MetricIntervalLowerBound: '15'
+          MetricIntervalUpperBound: ''
+          ScalingAdjustment: '1'
+  ScaleAutoScalingGroupDown:
+    Condition: UseAutoScaling
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ExactCapacity
+      AutoScalingGroupName: !Ref 'WebServerAsg'
+      PolicyType: StepScaling
+      EstimatedInstanceWarmup: '360'
+      StepAdjustments:
+        - MetricIntervalUpperBound: '0'
+          ScalingAdjustment: !Ref 'WebServerDesiredCapacity'
+  AutoScaleGroupCPUHighAlarm:
+    Condition: UseAutoScaling
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: 'true'
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      EvaluationPeriods: '5'
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: '60'
+      Statistic: Average
+      Threshold: '70.0'
+      AlarmActions:
+        - !Ref 'ScaleAutoScalingGroupUp'
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref 'WebServerAsg'
+  AutoScaleGroupCPUNormalAlarm:
+    Condition: UseAutoScaling
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      ActionsEnabled: 'true'
+      ComparisonOperator: LessThanThreshold
+      EvaluationPeriods: '60'
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: '60'
+      Statistic: Average
+      Threshold: '70.0'
+      AlarmActions:
+        - !Ref 'ScaleAutoScalingGroupDown'
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref 'WebServerAsg'
 Outputs: {}

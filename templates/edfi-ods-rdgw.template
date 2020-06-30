@@ -1,7 +1,7 @@
 {
     "AWSTemplateFormatVersion": "2010-09-09",
 
-    "Description": "This template is intended to be installed into an existing VPC with two public subnets. It is customized for the ODS/API software suite solution.  It will create an auto-scaling group of RD Gateway instances in the public VPC subnets. **WARNING** This template creates Amazon EC2 Windows instance and related resources. You will be billed for the AWS resources used if you create a stack from this template. Based on QS(0005)",
+    "Description": "This is the official AWS Quick Start RDGW template.  This has been slightly modified for the Ed-Fi Quick Deployment.  This template is intended to be installed into an existing VPC with two public subnets. It is customized for the ODS/API software suite solution.  It will create an auto-scaling group of RD Gateway instances in the public VPC subnets. **WARNING** This template creates Amazon EC2 Windows instance and related resources. You will be billed for the AWS resources used if you create a stack from this template. Based on QS(0005)",
 
     "Metadata": {
         "AWS::CloudFormation::Interface": {
@@ -63,7 +63,7 @@
                     "default": "Key Pair Name"
                 },
                 "LatestAmiId": {
-                    "default": "SSM Parameter to Grab Latest AMI ID"
+                    "default": "Latest AMI ID to be used to launch the EC2 instance"
                 },
                 "NumberOfRDGWHosts": {
                     "default": "Number of RDGW Hosts"
@@ -130,8 +130,8 @@
             "Type": "AWS::EC2::KeyPair::KeyName"
         },
         "LatestAmiId": {
-            "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
-            "Default": "/aws/service/ami-windows-latest/Windows_Server-2016-English-Full-Base"
+            "Type": "AWS::EC2::Image::Id",
+            "Default": ""
         },
         "SecurityGroup": {
             "Description": "Remote Desktop Gateway EC2 Security Group",
@@ -173,21 +173,10 @@
         "RDGWInstanceType": {
             "Description": "Amazon EC2 instance type for the first Remote Desktop Gateway instance",
             "Type": "String",
-            "Default": "t2.large",
+            "Default": "t3.medium",
             "AllowedValues": [
-		"t2.medium",
-                "t2.large",
-                "m3.large",
-                "m3.xlarge",
-                "m3.2xlarge",
-                "m4.large",
-                "m4.xlarge",
-                "m4.2xlarge",
-                "m4.4xlarge",
-                "m5.large",
-                "m5.xlarge",
-                "m5.2xlarge",
-                "m5.4xlarge"
+		"t3.medium",
+                "t3.large"
             ]
         },
         "VPCID": {
@@ -213,40 +202,6 @@
                         ]
                     },
                     "AssertDescription": "All subnets must in the VPC"
-                }
-            ]
-        },
-        "CheckSupportedInstances": {
-            "RuleCondition": {
-                "Fn::Contains": [
-                    [
-                        "m4.large",
-                        "m4.xlarge",
-                        "m4.2xlarge",
-                        "m4.4xlarge"
-                    ],
-                    {
-                        "Ref": "RDGWInstanceType"
-                    }
-                ]
-            },
-            "Assertions": [
-                {
-                    "Assert": {
-                        "Fn::Not": [
-                            {
-                                "Fn::Contains": [
-                                    [
-                                        "eu-west-3"
-                                    ],
-                                    {
-                                        "Ref": "AWS::Region"
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    "AssertDescription": "M4 instances are not available in the Paris region"
                 }
             ]
         }

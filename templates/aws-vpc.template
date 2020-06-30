@@ -19,6 +19,7 @@
                     },
                     "Parameters": [
                         "VPCCIDR",
+                        "EnvLabel",
                         "PublicSubnet1CIDR",
                         "PublicSubnet2CIDR",
                         "PublicSubnet3CIDR",
@@ -142,6 +143,9 @@
                 },
                 "VPCTenancy": {
                     "default": "VPC Tenancy"
+                },
+		"EnvLabel": {
+		    "default": "EdFi ODS API Environment Label"
                 }
             }
         }
@@ -173,6 +177,11 @@
             "Description": "Deprecated. NAT gateways are now supported in all regions.",
             "Type": "String",
             "Default": "deprecated"
+        },
+        "EnvLabel": {
+            "Default": "",
+            "Description": "EdFi ODS API Environment Label",
+            "Type": "String"
         },
         "NATInstanceType": {
             "Default": "deprecated",
@@ -665,7 +674,9 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": "Private subnet 1A"
+                        "Value": {
+			   "Fn::Join": [ "", [ "edfi-ods-", { "Ref" : "EnvLabel"} ,"-private-subnet-1" ] ]
+                         }
                     },
                     {
                         "Fn::If": [
@@ -933,7 +944,9 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": "Private subnet 2A"
+                        "Value": {
+			   "Fn::Join": [ "", [ "edfi-ods-", { "Ref" : "EnvLabel"} ,"-private-subnet-2" ] ]
+                         }
                     },
                     {
                         "Fn::If": [
@@ -1736,7 +1749,9 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": "Public subnet 1"
+                        "Value": {
+			   "Fn::Join": [ "", [ "edfi-ods-", { "Ref" : "EnvLabel"} ,"-public-subnet-1" ] ]
+                         }
                     },
                     {
                         "Fn::If": [
@@ -1870,7 +1885,9 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": "Public subnet 2"
+                        "Value": {
+			   "Fn::Join": [ "", [ "edfi-ods-", { "Ref" : "EnvLabel"} ,"-public-subnet-2" ] ]
+                         }
                     },
                     {
                         "Fn::If": [

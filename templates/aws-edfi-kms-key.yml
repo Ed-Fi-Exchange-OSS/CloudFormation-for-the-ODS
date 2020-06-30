@@ -21,7 +21,8 @@ Resources:
         - ''
         - - KMS key for Ed-Fi
           - !Ref 'EnvLabel'
-          - ' Environment'
+          - ' Environment '
+          - !Ref 'AWS::StackName'
       EnableKeyRotation: true
       KeyPolicy:
         Version: '2012-10-17'
@@ -29,6 +30,7 @@ Resources:
           - ''
           - - edfi-kms-key-
             - !Ref 'EnvLabel'
+            - '-'
         Statement:
           - Effect: Allow
             Principal:
@@ -47,6 +49,8 @@ Resources:
             - - !Ref 'KMSKeyName'
               - '-'
               - !Ref 'EnvLabel'
+              - '-'
+              - !Ref 'AWS::StackName'
       TargetKeyId: !Ref 'KMSKey'
 Outputs:
   KeyId:

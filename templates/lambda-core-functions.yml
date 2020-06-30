@@ -9,31 +9,6 @@ Parameters:
     Default: ''
     Description: Provide a label for your environment to identify resources easier.
     Type: String
-  SSHKeyGenIamName:
-    Type: String
-    Default: edfi-ssh-key-generator
-    Description: This parameter will be use to name the policy, role and lambda function
-      for the SSH Key Generator
-  PassStoreIamName:
-    Type: String
-    Default: edfi-ssm-param-store
-    Description: This parameter will be use to name the policy, role and lambda function
-      for the SSM Parameter Store Function for the environment
-  Ec2ToElbIamName:
-    Type: String
-    Default: edfi-ec2-attach-elb
-    Description: This parameter will be use to name the policy, role and lambda function
-      for the EC2 to ELB Attach Function for the environment
-  RdsToMultiAZIamName:
-    Type: String
-    Default: edfi-rds-to-multiaz
-    Description: This parameter will be use to name the policy, role and lambda function
-      for the RDS to MultiAZ Function for the environment
-  MSSQLRestoreIamName:
-    Type: String
-    Default: edfi-ods-lambda-mssql-db-restore
-    Description: This parameter will be used as a prefix in the name of the Lambda
-      Security Group, the associated IAM policy and the Lambda function
   VPCID:
     Type: AWS::EC2::VPC::Id
     Default: vpc-c6e067be
@@ -78,6 +53,23 @@ Parameters:
       - 'false'
     Type: String
     Description: Is this a Non-Production environment?
+  DBEngine:
+    Description: The database engine software
+    Type: String
+    AllowedValues:
+      - PostgreSQL
+      - SQLServer
+    ConstraintDescription: Choose a support database engine
+    Default: SQLServer
+Mappings: 
+  DBLayer:
+    DBLayerFunctionName:
+      "SQLServer": "pyodbc-aws-lambda-layer-rhel-7.zip" 
+      "PostgreSQL": "lambda-layer-postgresql.zip"
+  DBImport: 
+    DBImportFunctionName: 
+      "SQLServer": "mssql-db-restore.zip"
+      "PostgreSQL": "lambda-postgresql-psql-function.zip"
 Conditions:
   NonProdEnvironment: !Equals
     - !Ref 'NonProdEnv'
@@ -88,6 +80,12 @@ Conditions:
   CreateLambdaMultiAZConversion: !Equals
     - !Ref 'CreateMultiAZFunction'
     - 'true'
+  UseSQLServer: !Equals
+    - !Ref 'DBEngine'
+    - 'SQLServer'
+  UsePostgres: !Equals
+    - !Ref 'DBEngine'
+    - 'PostgreSQL'
 Rules:
   SubnetsInVPC:
     Assertions:
@@ -120,8 +118,7 @@ Resources:
     Properties:
       PolicyName: !Join
         - ''
-        - - !Ref 'SSHKeyGenIamName'
-          - '-'
+        - - 'edfi-ssh-key-generator-'
           - !Ref 'EnvLabel'
           - '-'
           - !Ref 'AWS::Region'
@@ -152,8 +149,7 @@ Resources:
       Description: SSH key pair generator
       FunctionName: !Join
         - ''
-        - - !Ref 'SSHKeyGenIamName'
-          - '-'
+        - - 'edfi-ssh-key-generator-'
           - !Ref 'EnvLabel'
       Role: !GetAtt 'KeyGeneratorRole.Arn'
       Runtime: python3.7
@@ -188,8 +184,7 @@ Resources:
     Properties:
       PolicyName: !Join
         - ''
-        - - !Ref 'MSSQLRestoreIamName'
-          - '-'
+        - - 'edfi-ods-lambda-db-restore-'
           - !Ref 'EnvLabel'
           - '-'
           - !Ref 'AWS::Region'
@@ -202,6 +197,16 @@ Resources:
               - ec2:DescribeSubnets
               - ec2:DescribeAvailabilityZones
             Resource: '*'
+          - Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+            Resource:
+              - !Sub 'arn:aws:s3:::${S3BucketSourceCode}'
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource:
+              - !Sub 'arn:aws:s3:::${S3BucketSourceCode}/*'
           - Effect: Allow
             Action:
               - kms:Decrypt
@@ -233,30 +238,52 @@ Resources:
         - python3.7
       Content:
         S3Bucket: !Ref 'S3BucketSourceCode'
-        S3Key: !Sub '${S3KeySourceCode}/pyodbc-aws-lambda-layer-rhel-7.zip'
-      Description: MSSQL Connection layer, Driver and PYODBC
-      LayerName: !Ref 'MSSQLRestoreIamName'
+        S3Key: !Join
+          - ''
+          - - !Ref 'S3KeySourceCode'
+            - '/'
+            - !FindInMap
+              - DBLayer
+              - DBLayerFunctionName
+              - !Ref 'DBEngine'
+      Description: Database SQL Import Connection Lambda Layer
+      LayerName: edfi-ods-lambda-db-restore-layer
   MSSQLDBRestoreLambdaFunction:
     Type: AWS::Lambda::Function
     DependsOn:
       - MSSQLDBRestoreRole
       - MSSQLDBRestoreLambdaLayer
+      - CFHelperLambdaLayer
     Properties:
-      Handler: lambda_function.lambda_handler
+      Handler: index.lambda_handler
       Layers:
         - !Ref 'MSSQLDBRestoreLambdaLayer'
-      Description: EdFi ODS API MSSQL database restore lambda function
+        - !Ref 'CFHelperLambdaLayer'
+      Description: EdFi ODS API database restore lambda function
       FunctionName: !Join
         - ''
-        - - !Ref 'MSSQLRestoreIamName'
-          - '-'
+        - - 'edfi-ods-lambda-db-restore-'
           - !Ref 'EnvLabel'
       Role: !GetAtt 'MSSQLDBRestoreRole.Arn'
       Runtime: python3.7
       Timeout: 900
+      Environment:
+        !If
+          - UsePostgres
+          - 
+            Variables:
+              PGPASSFILE: /tmp/.pgpass 
+          - !Ref "AWS::NoValue"
       Code:
         S3Bucket: !Ref 'S3BucketSourceCode'
-        S3Key: !Sub '${S3KeySourceCode}/mssql-db-restore.zip'
+        S3Key: !Join
+          - ''
+          - - !Ref 'S3KeySourceCode'
+            - '/'
+            - !FindInMap
+              - DBImport
+              - DBImportFunctionName
+              - !Ref 'DBEngine'
       VpcConfig:
         SecurityGroupIds:
           - !Ref 'LambdaRestoreSGID'
@@ -289,8 +316,7 @@ Resources:
     Properties:
       PolicyName: !Join
         - ''
-        - - !Ref 'PassStoreIamName'
-          - '-'
+        - - 'edfi-ssm-param-store-'
           - !Ref 'EnvLabel'
           - '-'
           - !Ref 'AWS::Region'
@@ -343,8 +369,7 @@ Resources:
       Description: EdFi ODS Password Store to SSM
       FunctionName: !Join
         - ''
-        - - !Ref 'PassStoreIamName'
-          - '-'
+        - - 'edfi-ssm-param-store-'
           - !Ref 'EnvLabel'
       Role: !GetAtt 'SSMParamStoreRole.Arn'
       Runtime: python3.7
@@ -451,8 +476,7 @@ Resources:
     Properties:
       PolicyName: !Join
         - ''
-        - - !Ref 'Ec2ToElbIamName'
-          - '-'
+        - - 'edfi-ec2-attach-elb-'
           - !Ref 'EnvLabel'
           - '-'
           - !Ref 'AWS::Region'
@@ -491,8 +515,7 @@ Resources:
       Description: EdFi ODS API Attach Ec2 to ELB Function
       FunctionName: !Join
         - ''
-        - - !Ref 'Ec2ToElbIamName'
-          - '-'
+        - - 'edfi-ec2-attach-elb-'
           - !Ref 'EnvLabel'
       Role: !GetAtt 'Ec2ToElbLambdaRole.Arn'
       Runtime: python3.7
@@ -591,8 +614,7 @@ Resources:
     Properties:
       PolicyName: !Join
         - ''
-        - - !Ref 'RdsToMultiAZIamName'
-          - '-'
+        - - 'edfi-rds-to-multiaz-'
           - !Ref 'EnvLabel'
           - '-'
           - !Ref 'AWS::Region'
@@ -622,8 +644,7 @@ Resources:
       Description: AWS RDS MSSQL Multi-AZ Conversion
       FunctionName: !Join
         - ''
-        - - !Ref 'RdsToMultiAZIamName'
-          - '-'
+        - - 'edfi-rds-to-multiaz-'
           - !Ref 'EnvLabel'
       Role: !GetAtt 'RDSMultiAZConversionRole.Arn'
       Runtime: python3.7
@@ -669,25 +690,25 @@ Resources:
               conversion process.'')'
             - '         else:'
             - '           print(''RDS was not available on first check...'')'
-            - '           print(''Waiting 100 seconds to see if it becomes available...'')'
+            - '           print(''Waiting no more than 860 seconds to see if it becomes available...'')'
             - ' '
             - '           while not is_rds_available(rds_conn, RDS) and attempt <
-              10:'
-            - '             print(''RDS not yet available..waiting 10 seconds'')'
+              87:'
+            - '             print(''RDS not yet available..waiting 10 seconds before checking again.'')'
             - '             time.sleep(10)'
             - '             attempt = attempt + 1'
             - ' '
-            - '             if attempt <= 9:'
-            - '               rds_multi_az(rds_conn, RDS, MULTI_AZ)'
-            - '               helper.Data[''RDSMultiAZConversion''] = ''Succeeded'''
-            - '               print(''*** The RDS has successfully started the Multi-AZ
+            - '           if attempt <= 86:'
+            - '             rds_multi_az(rds_conn, RDS, MULTI_AZ)'
+            - '             helper.Data[''RDSMultiAZConversion''] = ''Succeeded'''
+            - '             print(''*** The RDS has successfully started the Multi-AZ
               conversion process.'')'
             - ' '
-            - '             else:'
-            - '               helper.Data[''RDSMultiAZConversion''] = ''Failed'' +
-              '' - the RDS is not in the available state'''
-            - '               print(''*** NOTICE: The RDS is not in an available state.
-              Cannot make the automated change to Multi-AZ.  Please do Manually'')'
+            - '           else:'
+            - '             helper.Data[''RDSMultiAZConversion''] = ''Failed'' +
+              '' - the RDS is not in the available state after 15 minutes'''
+            - '             print(''*** NOTICE: The RDS is not in an available state.
+              Cannot make the automated change to Multi-AZ.  Please do so Manually'')'
             - ' '
             - '       except Exception as e:'
             - '         helper.Data[''RDSMultiAZConversion''] = ''Failed'' + '' -
@@ -760,3 +781,30 @@ Outputs:
     Value: !Ref 'RDSMultiAZConversionLambdaFunction'
     Export:
       Name: !Sub '${AWS::StackName}-RDSMultiAZConversionLambdaFunction'
+  SSHKeyGenIamRoleName:
+    Description: IAM Role name for the SSH Key Generator Lambda Function
+    Value: !Ref 'KeyGeneratorRole'
+    Export:
+      Name: !Sub '${AWS::StackName}-SSHKeyGenIamRoleName'
+  MSSQLRestoreIamRoleName:
+    Description: IAM Role name for the MSSQL Restore Lambda Function
+    Value: !Ref 'MSSQLDBRestoreRole'
+    Export:
+      Name: !Sub '${AWS::StackName}-MSSQLRestoreIamRoleName'
+  SSMParamStoreIamRoleName:
+    Description: IAM Role name for the SSM Parameter Store Lambda Function
+    Value: !Ref 'SSMParamStoreRole'
+    Export:
+      Name: !Sub '${AWS::StackName}-SSMParamStoreIamRoleName'
+  AttachEc2toElbIamRoleName:
+    Condition: NonProdEnvironment
+    Description: IAM Role name for the Attach EC2 to ELB Lambda Function
+    Value: !Ref 'Ec2ToElbLambdaRole'
+    Export:
+      Name: !Sub '${AWS::StackName}-AttachEc2ToElbIamRoleName'
+  RDStoMultiAZIamRoleName:
+    Condition: CreateLambdaMultiAZConversion
+    Description: IAM Role name for the RDS convert to MultiAZ Lambda Function
+    Value: !Ref 'RDSMultiAZConversionRole'
+    Export:
+      Name: !Sub '${AWS::StackName}-RDStoMultiAZIamRoleName' 

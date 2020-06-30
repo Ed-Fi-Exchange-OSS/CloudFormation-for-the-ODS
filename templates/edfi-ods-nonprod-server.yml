@@ -18,13 +18,16 @@ Metadata:
         Parameters:
           - AdminUser
           - AdminPassword
+          - LatestAmiId
           - WebServerInstanceType
           - KeyPair
       - Label:
           default: EdFi ODS API Configuration
         Parameters:
           - EnvLabel
+          - Version
           - DomainNameURL
+          - DBEngine
           - DBEndpointAddress
           - DBUsername
           - DBPassword
@@ -46,12 +49,16 @@ Metadata:
         default: The Security Group ID of the Application Servers
       VPCID:
         default: The VPC ID to use for the resources
+      LatestAmiId:
+        default: The AMI ID to use for the EC2 instance
       WebServerInstanceType:
         default: The EC2 instance type of the Application Server
       KeyPair:
         default: EC2 KeyPair to assign to the instances
       DomainNameURL:
         default: Domain Name of the ODS API environment
+      DBEngine:
+        default: Database Engine
       DBEndpointAddress:
         default: The RDS endpoint for the environment
       DBUsername:
@@ -62,11 +69,17 @@ Metadata:
         default: Should the SwaggerUI be installed
       S3BucketName:
         default: The S3 bucket that provides the ODS API resources
+      Version:
+        default: The ODS API Software Version
 Parameters:
   EnvLabel:
     Default: ''
     Type: String
     Description: Provide a label for your environment to identify resources easier.
+  Version:
+    Default: ''
+    Type: String
+    Description: The ODS API Software version to install such as 3.4.0
   UseSwagger:
     AllowedValues:
       - 'yes'
@@ -105,20 +118,12 @@ Parameters:
     Description: A subnet id of Amazon VPC where the WebServer would be launched.
     Type: AWS::EC2::Subnet::Id
   WebServerInstanceType:
-    AllowedValues:
-      - t3.medium
-      - t3.large
-      - t2.medium
-      - t2.large
-      - m5.large
-      - m5.xlarge
-    ConstraintDescription: Choose an instance type.
-    Default: t2.medium
+    Default: t3.medium
     Description: Web Server node instance type
     Type: String
   LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-windows-latest/Windows_Server-2016-English-Full-Base
+    Type: AWS::EC2::Image::Id
+    Default: ""
   WebServerSecurityGroup:
     Description: Web Server Security Group
     Type: AWS::EC2::SecurityGroup::Id
@@ -130,6 +135,14 @@ Parameters:
   DomainNameURL:
     Description: The fully qualified domain name to be used for this ODS API environment
     Type: String
+  DBEngine:
+    Description: The database engine software
+    Type: String
+    AllowedValues:
+      - PostgreSQL
+      - SQLServer
+    ConstraintDescription: Choose a support database engine
+    Default: SQLServer
   DBEndpointAddress:
     Description: RDS DB Endpoint
     Type: String
@@ -167,6 +180,8 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -224,6 +239,7 @@ Resources:
           defaultorder:
             - config1
             - config2
+            - config3
         config1:
           files:
             c:\cfn\cfn-hup.conf:
@@ -248,24 +264,45 @@ Resources:
                   - ' --region '
                   - !Ref 'AWS::Region'
                   - "\n"
-            C:\ODS-API-and-Swagger-Server-Install.ps1:
+            C:\install-ods-api-aws-script.ps1:
               source: !Join
                 - ''
                 - - https://
                   - !Ref 'S3BucketName'
-                  - .s3.amazonaws.com/scripts/ODS-API-and-Swagger-Server-Install.ps1
-            C:\Admin-App-Install.ps1:
+                  - .s3.amazonaws.com/scripts/install-ods-api-aws-script.ps1
+            C:\admin-app-aws-install-script.ps1:
               source: !Join
                 - ''
                 - - https://
                   - !Ref 'S3BucketName'
-                  - .s3.amazonaws.com/scripts/Admin-App-Install.ps1
+                  - .s3.amazonaws.com/scripts/admin-app-aws-install-script.ps1
+            C:\install-cloudwatch-agent.ps1:
+              source: !Join
+                - ''
+                - - https://
+                  - !Ref 'S3BucketName'
+                  - .s3.amazonaws.com/scripts/install-cloudwatch-agent.ps1
             C:\Create-LocalUser.ps1:
               source: !Join
                 - ''
                 - - https://
                   - !Ref 'S3BucketName'
                   - .s3.amazonaws.com/scripts/Create-LocalUser.ps1
+            C:\ndp48-x86-x64-allos-enu.exe:
+              source: !Join
+                - ''
+                - - https://
+                  - !Ref 'S3BucketName'
+                  - .s3.amazonaws.com/packages/ndp48-x86-x64-allos-enu.exe
+          commands:
+            a-install-dotnet:
+              command: "C:\\ndp48-x86-x64-allos-enu.exe /q"
+              ignoreErrors: "true"
+              waitAfterCompletion: '60'
+            b-restart-server:
+              command: powershell.exe -Command Restart-Computer -Force
+              waitAfterCompletion: forever
+        config2:
           commands:
             a-create-admin:
               command: !Join
@@ -284,45 +321,61 @@ Resources:
                   - !Ref 'AdminUser'
                   - ' /ADD'
               waitAfterCompletion: '0'
-        config2:
+            c-install-cloudwatch-agent-package:
+              command: !Join
+                - ''
+                - - powershell -command C:\install-cloudwatch-agent.ps1 -EnvLabel '
+                  - !Ref 'EnvLabel'
+                  - ''' -S3Bucket '''
+                  - !Ref 'S3BucketName'
+                  - ''''
+              waitAfterCompletion: '0'
+        config3:
           commands:
             1-executeinstall:
               command: !Join
                 - ''
-                - - powershell -command C:\ODS-API-and-Swagger-Server-Install.ps1
+                - - powershell -command C:\install-ods-api-aws-script.ps1
                     -verb runas -DatabaseHost '
                   - !Ref 'DBEndpointAddress'
                   - ''' -DatabaseUser '''
                   - !Ref 'DBUsername'
                   - ''' -DatabasePassword '''
                   - !Ref 'DBPassword'
+                  - ''' -DBEngine '''
+                  - !Ref 'DBEngine'
                   - ''' -DomainName '''
                   - !Ref 'DomainNameURL'
                   - ''' -InstallSwagger '''
                   - !Ref 'UseSwagger'
+                  - ''' -VersionNumber '''
+                  - !Ref 'Version'
                   - ''' -S3Bucket '''
                   - !Ref 'S3BucketName'
                   - ''''
             2-executeinstall:
               command: !Join
                 - ''
-                - - powershell -command C:\Admin-App-Install.ps1 -verb runas -DatabaseHost
+                - - powershell -command C:\admin-app-aws-install-script.ps1 -verb runas -DatabaseHost
                     '
                   - !Ref 'DBEndpointAddress'
                   - ''' -DatabaseUser '''
                   - !Ref 'DBUsername'
                   - ''' -DatabasePassword '''
                   - !Ref 'DBPassword'
-                  - ''' -AdminAppUserName '''
-                  - !Ref 'AdminUser'
-                  - ''' -AdminAppPassword '''
-                  - !Ref 'AdminPassword'
+                  - ''' -DBEngine '''
+                  - !Ref 'DBEngine'
+                  - ''' -VersionNumber '''
+                  - !Ref 'Version'
                   - ''' -InstallSwagger '''
                   - !Ref 'UseSwagger'
                   - ''' -InstallNonProd ''yes'' -DomainName ''localhost'' -S3Bucket
                     '''
                   - !Ref 'S3BucketName'
                   - ''''
+            3-signal-resource:
+              command: !Sub >
+                cfn-signal.exe -e %ERRORLEVEL% --stack ${AWS::StackName} --resource WebServerInstance --region ${AWS::Region}
           services:
             windows:
               cfn-hup:
@@ -358,14 +411,11 @@ Resources:
             - ' --region '
             - !Ref 'AWS::Region'
             - "\n"
-            - 'cfn-signal.exe -e %ERRORLEVEL% '
-            - ' --stack '
-            - !Ref 'AWS::StackId'
-            - ' --resource WebServerInstance'
-            - ' --region '
-            - !Ref 'AWS::Region'
-            - "\n"
             - </script>
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT40M
 Outputs:
   Ec2InstanceId:
     Description: Instance ID for the EC2 NonProd Server

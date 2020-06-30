@@ -14,6 +14,7 @@ Metadata:
           - NonProdEnv
           - S3SourceBucket
           - EnvLabel
+          - DBEngine
           - SQLEngineEdition
       - Label:
           default: Network configuration
@@ -28,9 +29,11 @@ Metadata:
       RDGWCIDR:
         default: Allowed CIDR Block for external access to the Remote Desktop Gateway.
       S3SourceBucket:
-        default: Ed-Fi Quick Deploy bucket name
+        default: Ed-Fi Quick Deploy S3 Location for SQL Server Backup Files to Import
+      DBEngine:
+        default: RDS Engine Type
       SQLEngineEdition:
-        default: MSSQL database engine edition
+        default: RDS database engine edition
       NonProdEnv:
         default: Non Production Environment
 Parameters:
@@ -53,15 +56,19 @@ Parameters:
     ConstraintDescription: S3 bucket names can include numbers, lowercase letters,
       uppercase letters, and hyphens (-). It cannot start or end with a hyphen (-).
     Default: edfi-aws-quick-deploy
-    Description: S3 bucket name for the Ed-Fi Quick Deploy bak files location.
+    Description: S3 bucket name for the Ed-Fi Quick Deploy SQL bak files location on the region.
     Type: String
-  SQLEngineEdition:
+  DBEngine:
+    Description: The database engine software
+    Type: String
     AllowedValues:
-      - sqlserver-ee
-      - sqlserver-se
-    ConstraintDescription: Must select a a valid MSSQL Database Engine Edition.
+      - PostgreSQL
+      - SQLServer
+    ConstraintDescription: Choose a support database engine
+    Default: SQLServer
+  SQLEngineEdition:
     Default: sqlserver-se
-    Description: MSSQL Database Engine Edition.
+    Description: RDS Database Engine
     Type: String
   NonProdEnv:
     Default: 'true'
@@ -77,6 +84,12 @@ Conditions:
   ProdEnvironment: !Equals
     - !Ref 'NonProdEnv'
     - 'false'
+  UseSQLServer: !Equals
+    - !Ref 'DBEngine'
+    - 'SQLServer'
+  UsePostgres: !Equals
+    - !Ref 'DBEngine'
+    - 'PostgreSQL'
 Resources:
   RDPServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -266,7 +279,7 @@ Resources:
         - ''
         - - edfi-ods-lambda-db-restore-
           - !Ref 'EnvLabel'
-          - -test-environment
+          - -environment
       VpcId: !Ref 'VPCID'
   RDSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -284,8 +297,8 @@ Resources:
       VpcId: !Ref 'VPCID'
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: '1433'
-          ToPort: '1433'
+          FromPort: !If [ UsePostgres, '5432','1433']
+          ToPort: !If [ UsePostgres, '5432','1433']
           SourceSecurityGroupId: !Ref 'ApplicationServerSecurityGroup'
           Description: !Join
             - ''
@@ -293,8 +306,8 @@ Resources:
               - !Ref 'EnvLabel'
               - ' environment Edfi ODS API EC2 instances'
         - IpProtocol: tcp
-          FromPort: '1433'
-          ToPort: '1433'
+          FromPort: !If [ UsePostgres, '5432','1433']
+          ToPort: !If [ UsePostgres, '5432','1433']
           SourceSecurityGroupId: !Ref 'MsSqlDBLambdaFunctionRestoreSG'
           Description: !Join
             - ''
@@ -307,8 +320,8 @@ Resources:
     Properties:
       GroupId: !Ref 'RDSSecurityGroup'
       IpProtocol: tcp
-      FromPort: 1433
-      ToPort: 1433
+      FromPort: !If [ UsePostgres, '5432','1433']
+      ToPort: !If [ UsePostgres, '5432','1433']
       Description: !Join
         - ''
         - - 'Allow access from the '
@@ -316,6 +329,7 @@ Resources:
           - ' environment Edfi ODS API Admin App instances'
       SourceSecurityGroupId: !Ref 'AdminAppServerSecurityGroup'
   RDSIAMBackupRestoreRole:
+    Condition: UseSQLServer
     Type: AWS::IAM::Role
     DeletionPolicy: Retain
     Properties:
@@ -350,6 +364,7 @@ Resources:
                 Resource:
                   - !Sub 'arn:aws:s3:::${S3SourceBucket}/*'
   RDSRestoreOptionGroup:
+    Condition: UseSQLServer
     Type: AWS::RDS::OptionGroup
     DeletionPolicy: Retain
     Properties:
@@ -401,6 +416,7 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-RDSSecurityGroupID'
   RDSOptionGroupName:
+    Condition: UseSQLServer
     Description: Option Group Name for the RDS
     Value: !Ref 'RDSRestoreOptionGroup'
     Export:
