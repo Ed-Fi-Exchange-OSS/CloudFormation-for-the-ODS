@@ -66,7 +66,7 @@ Metadata:
       RDSInstanceType:
         default: RDS Instance type
       LatestAmiId:
-        default: ' Latest AMI ID'
+        default: 'Latest AMI ID'
       MultiAZAppServers:
         default: Highly Available Application Server Pool
       EnableAutoScaling:
@@ -666,6 +666,8 @@ Resources:
           - '.s3.amazonaws.com/templates/edfi-ods-nonprod-server.yml'
       Parameters:
         EnvLabel: !Ref 'EnvLabel'
+        ElbArn: !GetAtt 'OdsApiELBStack.Outputs.ELBArn'
+        SSLCertificateId: !Ref 'SSLCertificateId'
         WebServerSubnetId: !Ref 'PrivateSubnet1ID'
         VPCID: !Ref 'VPCID'
         AdminUser: LocalAdmin
@@ -719,23 +721,6 @@ Resources:
           - Fn::FindInMap: [ SQLServerInformation, RDGWServerSize, !Ref EnvironmentSize  ]
           - Fn::FindInMap: [ PostgreSQLInformation, RDGWServerSize, !Ref EnvironmentSize ]
         VPCID: !Ref 'VPCID'
-  PostInstallLambdaTasksNonProd:
-    Condition: NonProdEnvironment
-    DependsOn: NonProdStack
-    Type: AWS::CloudFormation::Stack
-    Properties:
-      TemplateURL: !Join
-        - ''
-        - - 'https://'
-          - !FindInMap
-            - SourceTemplateLocation
-            - S3Location
-            - S3SourceBucket
-          - '.s3.amazonaws.com/templates/lambda-nonprod-custom-resources.yml'
-      Parameters:
-        EnvLabel: !Ref 'EnvLabel'
-        InstanceID1: !GetAtt 'NonProdStack.Outputs.Ec2InstanceId'
-        ELBName1: !GetAtt 'OdsApiELBStack.Outputs.ELBName'
   PostInstallLambdaTasksMultiAZRDS:
     Condition: UseMultiAZRDS
     DependsOn: RDGWStack

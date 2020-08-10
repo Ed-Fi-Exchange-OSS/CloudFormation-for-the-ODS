@@ -143,33 +143,36 @@ Resources:
       LoadBalancerArn: !Ref 'ApplicationLoadBalancer'
       Port: 80
       Protocol: HTTP
-  ElasticLoadBalancer:
+  ApplicationLoadBalancerNonProd:
     Condition: NonProdEnvironment
-    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
       Subnets:
         - !Ref 'PublicSubnet1ID'
         - !Ref 'PublicSubnet2ID'
-      Scheme: internet-facing
-      CrossZone: 'true'
       SecurityGroups:
         - !Ref 'ELBSecurityGroup'
-      Listeners:
-        - LoadBalancerPort: '443'
-          Protocol: HTTPS
-          InstancePort: '80'
-          InstanceProtocol: HTTP
-          SSLCertificateId: !Ref 'SSLCertificateId'
-        - LoadBalancerPort: '444'
-          Protocol: TCP
-          InstancePort: '444'
-          InstanceProtocol: TCP
-      HealthCheck:
-        Target: HTTP:80/
-        HealthyThreshold: '2'
-        UnhealthyThreshold: '4'
-        Interval: '30'
-        Timeout: '20'
+      Tags:
+        - Key: Name
+          Value: ODS API and Admin App Load Balancer
+        - Key: Environment
+          Value: !Ref 'EnvLabel'
+  ALBHTTPListenerNonProd:
+    Condition: NonProdEnvironment
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: "redirect"
+          RedirectConfig:
+            Protocol: "HTTPS"
+            Port: "443"
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: "HTTP_301"
+      LoadBalancerArn: !Ref 'ApplicationLoadBalancerNonProd'
+      Port: 80
+      Protocol: HTTP
 Outputs:
   ELBURL:
     Condition: ProdEnvironment
@@ -182,15 +185,15 @@ Outputs:
     Condition: NonProdEnvironment
     Description: The DNS value of the ELB that is the AWS endpoint value for the ODS
       API application.
-    Value: !GetAtt 'ElasticLoadBalancer.DNSName'
+    Value: !GetAtt 'ApplicationLoadBalancerNonProd.DNSName'
     Export:
       Name: !Sub '${AWS::StackName}-ELBURL'
-  ELBName:
+  ELBArn:
     Condition: NonProdEnvironment
-    Description: The AWS name of the Non Prod ELB for the ODS API environment
-    Value: !Ref 'ElasticLoadBalancer'
+    Description: The AWS ARN of the Non Prod ELB for the ODS API environment
+    Value: !Ref 'ApplicationLoadBalancerNonProd'
     Export:
-      Name: !Sub '${AWS::StackName}-ELBName'
+      Name: !Sub '${AWS::StackName}-ELBArn'
   TargetGroupArn:
     Condition: ProdEnvironment
     Description: The ARN value of the Target Group in which to assign the ODS API
