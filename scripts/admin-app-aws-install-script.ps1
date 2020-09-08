@@ -35,7 +35,7 @@ function Get-Installer-Version-Mapping {
     ### For each new ODS/API version, add an IF block with the ODS version to Admin App Installer version in MyGet
  
     if ( $odsversion -eq "3.4.0") {
-        return "3.4.0.584"
+        return "3.4.0.686"
     }
 
     
