@@ -38,7 +38,10 @@ function Get-Installer-Version-Mapping {
         return "3.4.0.686"
     }
 
-    
+    if ( $odsversion -eq "3.4.1") {
+        return "3.4.0.686"
+    }
+      
 }
 
 function Download-Edfi-AdminApp {

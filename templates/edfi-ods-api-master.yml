@@ -118,7 +118,8 @@ Parameters:
   Version:
     AllowedValues:
       - 3.4.0
-    Default: 3.4.0
+      - 3.4.1
+    Default: 3.4.1
     Description: Select the version of the ODS/API Software Suite to install.
     Type: String
   EnvLabel:
