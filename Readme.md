@@ -1,6 +1,10 @@
-﻿# Insert Repository Name Here
+﻿# CloudFormation-for-the-ODS
 
-Insert project information here
+Cloud Formation template and supporting artifacts for installing the ODS/API in AWS.
+
+See [Ed-Fi ODS/API Cloud Deployment for AWS - Deployment
+Guide](https://techdocs.ed-fi.org/pages/viewpage.action?pageId=75112943) for
+detailed usage information.
 
 ## Legal Information
 
