@@ -10,6 +10,10 @@ Param([string]$DatabaseHost,
 
 $ErrorActionPreference = "Stop"
 
+### This install script is specifically to handle the installation of the Admin Application for the AWS Quick Deploy option
+###  1.) It will install the specific version of the Admin Application based on the ODS/API software version
+###  2.) The v1.8.x Admin Application has a much different installation process than the 2.0.x versions, but the script modifies install files as needed.
+
 ##### Variables #########
 $LogDirectory = "C:\EdFiInstallLogs"
 $DownloadsDirectory = "C:\EdFiArtifacts"
@@ -24,6 +28,9 @@ function LogMsg($Msg) {
     Write-Host "$(Get-Date -format 'u') $Msg"
 }
 
+
+###  This function is what defines the Admin Application version that is located in the Ed-Fi MyGet repository. 
+####  If versions are added, this funcion may need to be edited if version to download for a specfic ODS/API version of the installer changes.
 function Get-Installer-Version-Mapping {
     
     Param(    
@@ -42,6 +49,34 @@ function Get-Installer-Version-Mapping {
         return "3.4.0.686"
     }
       
+    ### Default is to use the version of the Admin App Below for v2.0.x and ODS/API v5.x and above
+    return "2.0.1"
+}
+
+
+###  This function is what defines the Admin Application filename that is located in the Ed-Fi MyGet repository.  THe name is different depending on the version
+###   and the default name returned is for the latest Admin Application installer (v2.0.x).  If versions are added, this funcion may need to be edited if the filename
+###   of the installer changes.
+function Get-Installer-Filename-Mapping {
+    
+    Param(    
+        [parameter(position=0)]
+        [string] $odsversion    
+    )
+
+    ### Use the Admin App Installer script located in MyGet.  This function can provide the mapping based on the ODS/API version being installed
+    ### For each new ODS/API version, add an IF block with the ODS version to Admin App Installer version in MyGet
+ 
+    if ( $odsversion -eq "3.4.0") {
+        return "AdminAppInstaller"
+    }
+
+    if ( $odsversion -eq "3.4.1") {
+        return "AdminAppInstaller"
+    }
+      
+    ### Default is to use the name of the Admin App Installer Below for v2.0.x and ODS/API v5.x and above
+    return "EdFi.Suite3.Installer.AdminApp"
 }
 
 function Download-Edfi-AdminApp {
@@ -93,7 +128,7 @@ function Extract-Admin-App-Package {
         [string] $PackagePath
     )
 
-    $ExtractedFolder = "AdminAppInstaller"
+    $ExtractedFolder = "$InstallerFilename"
     $ExtractedPath = [Io.path]::Combine($DownloadsDirectory, $ExtractedFolder)
 
     ## Need to Unzip package
@@ -104,6 +139,8 @@ function Extract-Admin-App-Package {
     return $ExtractedPath
 }
 
+
+#### This function is only used when the version of the ODS/API is 3.4.x.  It is for installing the Admin Application v1.8.x
 function Create-JSON-Config-File {
 
     Param(    
@@ -143,15 +180,93 @@ function Create-JSON-Config-File {
 
 }
 
-function Install-Admin-App {
+#### This function is only used when the version of the ODS/API is v5.0.x or above.  It is for installing the Admin Application Suite 3, v2.0.x
+function Modify-Install-Files {
 
     Param(    
         [parameter(position=0)]
         [string] $Path
     )
 
-    ## Set the install script to include the -DisableMigations option to avoid any database actions as the solution already has placed the databases into the RDS.
-    $AdminAppInstallScript = "tools\install.ps1 -DisableMigrations"
+    $AdminInstallFile = "install.ps1"
+    $InstallFilePath = [Io.path]::Combine($Path, $AdminInstallFile)
+
+    LogMsg("Admin App Installer install.ps1 File Path: $InstallFilePath")
+   
+    ## Test that extraction is successful and install configuration file exits.  
+    ##   If so, need to then populate 'install.ps1' file with values passed to the script for the environment
+    if ( Test-Path -Path $InstallFilePath ) {
+       LogMsg("Updating Admin App install.ps1 file...")
+
+       $ConfigTextContent = Get-Content -Path "$InstallFilePath" -Raw
+       $ConfigTextContent = $ConfigTextContent -Replace "Server = `"[^\\]*?`"", "Server = `"$DatabaseHost`""
+       $ConfigTextContent = $ConfigTextContent -Replace "Engine = `"[^\\]*?`"", "Engine = `"$DatabaseEngine`""
+       $ConfigTextContent = $ConfigTextContent -Replace 'UseIntegratedSecurity=\$true', "UseIntegratedSecurity = `$false`r`nUsername = `"$DatabaseUser`"`r`nPassword = `"$DatabasePassword`""
+       $ConfigTextContent = $ConfigTextContent -Replace "OdsApiUrl = `"[^\\]*?`"", "OdsApiUrl = `"$OdsApiUrl`""
+
+       Set-Content "$InstallFilePath" $ConfigTextContent
+ 
+       LogMsg("Configuration file install.ps1 updated.")
+    }
+    else {
+       LogMsg("ERROR!  Could not find the install.ps1 file to edit for the Admin Application.  This indicates a problem with the install of the software and requires support.")
+       LogMsg("$error")
+       $error.Clear()
+    }
+
+}
+
+#### This function is only used when the version of the ODS/API is v5.0.x or above.  It is for installing the Admin Application Suite 3, v2.0.x
+#### We need to remove the call in the module that attempts to update the database as the DB is already setup from the ODS/API Binary installation.
+function Modify-Suite3-Powershell-Module {
+    
+    Param(    
+        [parameter(position=0)]
+        [string] $Path
+    )
+  
+    $AdminInstallModuleFile = "Install-EdFiOdsAdminApp.psm1"
+    $InstallModulePath = [Io.path]::Combine($Path, $AdminInstallModuleFile)
+
+    LogMsg("Admin App Installer Install Module File Path: $InstallModulePath")
+
+    if ( Test-Path -Path $InstallModulePath ) {
+       LogMsg("Updating Admin App Install-EdFiOdsAdminApp.psm1 file to prevent DBUpdate call from occurring with Suite 3...")
+
+       ### $result += Invoke-DbUpScripts -Config $Config
+       $ConfigTextContent = Get-Content -Path "$InstallModulePath" -Raw
+       $ConfigTextContent = $ConfigTextContent -Replace '\$result \+\= Invoke-DbUpScripts -Config', "## Removed DbUpScripts call for AWS Quick Deploy Install"
+
+       Set-Content "$InstallModulePath" $ConfigTextContent
+ 
+       LogMsg("Powershell file Install-EdFiOdsAdminApp.psm1 updated.")
+    }
+    else {
+       LogMsg("ERROR!  Could not find the Install-EdFiOdsAdminApp.psm1 file to edit for the Admin Application.  This indicates a problem with the install of the software and requires support.")
+       LogMsg("$error")
+       $error.Clear()
+    }
+
+}
+
+
+function Install-Admin-App {
+
+    Param(    
+        [parameter(position=0)]
+        [string] $Path,
+	    [parameter(position=1)]
+        [string] $InstallerName
+    )
+
+    
+    if ($InstallerName -eq 'AdminAppInstaller') {
+        ## Set the install script to include the -DisableMigations option to avoid any database actions as the solution already has placed the databases into the RDS.
+        $AdminAppInstallScript = "tools\install.ps1 -DisableMigrations"
+    } Else {
+	$AdminAppInstallScript = "install.ps1"	
+    }
+
     $AdminAppInstallScriptPath = [Io.path]::Combine($Path, $AdminAppInstallScript)
     
     LogMsg("Admin App Installer Script File Path: $AdminAppInstallScriptPath")
@@ -172,6 +287,11 @@ function Install-Admin-App {
 
 function Update-Admin-App-Config {
 
+    Param(    
+	[parameter(position=0)]
+        [string] $InstallerName
+    )
+
     $AdminAppWebConfigFilePath = "C:\inetpub\Ed-Fi\AdminApp\Web.config"
        
     try {
@@ -179,8 +299,15 @@ function Update-Admin-App-Config {
         $AdminAppTextContent = Get-Content -Path "$AdminAppWebConfigFilePath" -Raw
         $AdminAppTextContent = $AdminAppTextContent -Replace '<add key="ProductionApiUrl"[^\\]*?\/>', "<add key=`"ProductionApiUrl`" value=`"$OdsApiUrl`" />"
         $AdminAppTextContent = $AdminAppTextContent -Replace '<appSettings file="[^\\]*?>', "<appSettings>"
-        $AdminAppTextContent = $AdminAppTextContent -Replace '<add key="AspNetIdentityEnabled"[^\\]*?>', "<add key=`"AspNetIdentityEnabled`" value=`"true`" />"
-  
+        
+        LogMsg("Checking for v1.8.x Admin App Installer to see if we need to update the ASP.NET key value...if so, updating next...")
+	LogMsg("InstallerName = $InstallerName")
+
+        ## This will only execute if the version of the Admin App is for use with ODS/API v3.4.x
+        If ($InstallerName -eq 'AdminAppInstaller') {
+            LogMsg("Version 1.8.x Admin App configuration detected....Updating ASP.NET identity value to true...")
+            $AdminAppTextContent = $AdminAppTextContent -Replace '<add key="AspNetIdentityEnabled"[^\\]*?>', "<add key=`"AspNetIdentityEnabled`" value=`"true`" />"
+        }
         ### Configure SwaggerUI value if given the proper command line parameter
         If ($InstallSwagger -eq 'yes') {
             $AdminAppTextContent = $AdminAppTextContent -Replace '<add key="SwaggerUrl"[^\\]*?\/>', "<add key=`"SwaggerUrl`" value=`"$SwaggerUrl`" />"
@@ -248,6 +375,7 @@ function Adjust-IIS-For-Environment-Type {
 
 }
 
+#### This function is only used when the version of the ODS/API is v3.4.x or.  It is needed to set the proper authentication process for the Admin Application v1.8.x
 function Enable-ASP-Net-Identity-In-Site {
 
      ## Enable Anoymous Authentication and disable Windows Authentication on the Admin App site to allow ASP.NET logins
@@ -306,10 +434,14 @@ If ($DBEngine -eq 'SQLServer') {
 LogMsg("DB Engine value is $DatabaseEngine")
 LogMsg("DB Port value is $DatabasePort")
 
-### Due to the different way the Admin Application versions the installer, we need to get the proper mapping based on the ODS API Version.
+### Due to the different way the Admin Application versions the installer, we need to get the proper mapping based on the ODS/API Version.
 $InstallerVersion = Get-Installer-Version-Mapping "$VersionNumber"
+$InstallerFilename = Get-Installer-Filename-Mapping "$VersionNumber"
 
-$AdminAppInstallerPackage = Download-EdFi-AdminApp "AdminAppInstaller" "$InstallerVersion"
+LogMsg("Installer Version = $InstallerVersion")
+LogMsg("Installer Filename = $InstallerFilename")
+
+$AdminAppInstallerPackage = Download-EdFi-AdminApp "$InstallerFilename" "$InstallerVersion"
 LogMsg("AdminApp Installer Package Path = $AdminAppInstallerPackage")
 
 #### Begin Install Process
@@ -317,17 +449,24 @@ Install-IIS
 
 $AdminAppUnzipPath = Extract-Admin-App-Package $AdminAppInstallerPackage
 
-### Edit the Admin App Installer configuraiton file to match requested setup options
-Create-JSON-Config-File $AdminAppUnzipPath
+### Based on which installer us being used, modify the proper files to be used with AWS and the installation process
+if ($InstallerFilename -eq 'AdminAppInstaller') {
+    Create-JSON-Config-File $AdminAppUnzipPath
+} Else {
+    Modify-Install-Files $AdminAppUnzipPath 
+    Modify-Suite3-Powershell-Module $AdminAppUnzipPath
+}
+	
+Install-Admin-App $AdminAppUnzipPath $InstallerFilename
 
-Install-Admin-App $AdminAppUnzipPath
-
-Update-Admin-App-Config 
+Update-Admin-App-Config $InstallerFilename
 
 Adjust-IIS-For-Environment-Type
 
-Enable-ASP-Net-Identity-In-Site
-
+#### If we are using the Admin Application v1.8.x for ODS/API v3.4.x, we need to do an additional configuration update to the Admin Application
+if ($InstallerFilename -eq 'AdminAppInstaller') {
+    Enable-ASP-Net-Identity-In-Site
+}
 
 LogMsg("EdFi Admin App Install and Configuration Completed.")
 
