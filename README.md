@@ -1,4 +1,7 @@
-# CloudFormation-for-the-ODS
+# CloudFormation-for-the-ODS-API-5.0
+
+| 📣 Currently supports up to version 5.0.1, with no plans for continued enhancement. |
+| -- |
 
 Cloud Formation template and supporting artifacts for installing the ODS/API in AWS.
 
